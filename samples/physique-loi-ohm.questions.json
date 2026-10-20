@@ -1,0 +1,38 @@
+{
+  "source": "physique-loi-ohm.pdf",
+  "cours": "physique",
+  "questions": [
+    {
+      "type": "libre_llm",
+      "enonce": "[MOCK] Explique avec tes mots: D'ohm.",
+      "reponse_attendue": "[MOCK] Concept « d'ohm » du thème physique. Généré sans appel LLM.",
+      "id": "03a23c80-95d9-4ed4-9a9d-bc80bfcac42b",
+      "concept_id": "c1",
+      "cours": "physique",
+      "source": {
+        "fichier": "physique-loi-ohm.pdf",
+        "page": null
+      },
+      "source_ref": "page 1",
+      "confiance": "haute"
+    },
+    {
+      "type": "libre_llm",
+      "enonce": "[MOCK] Dans quel cas applique-t-on « D'ohm » ?",
+      "reponse_attendue": "[MOCK] Concept « d'ohm » du thème physique. Généré sans appel LLM.",
+      "id": "a1a9eaea-9dbb-4c46-95ec-946266c77cd7",
+      "concept_id": "c1",
+      "cours": "physique",
+      "source": {
+        "fichier": "physique-loi-ohm.pdf",
+        "page": null
+      },
+      "source_ref": "page 1",
+      "confiance": "moyenne"
+    }
+  ],
+  "echecs": [],
+  "avertissements": [
+    "[MOCK] Mode simulé: questions générées sans appel LLM."
+  ]
+}

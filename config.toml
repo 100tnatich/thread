@@ -1,0 +1,92 @@
+# Configuration du prototype 1. Modifiable sans toucher au code.
+
+[model]
+# Modèle Anthropic utilisé pour extract et generate.
+name = "claude-sonnet-5"
+max_tokens = 8192
+
+[pricing]
+# OBSOLÈTE, conservé pour compatibilité: plus aucun calcul ne lit ces valeurs.
+# Les tarifs qui font foi (estimation, registre, plafonds) sont dans
+# src/flashcards/budget.py (TARIFS), par modèle.
+input_per_mtok = 2.0
+output_per_mtok = 10.0
+
+[scheduler]
+# Fichier SQLite du moteur de planification (relatif à la racine du projet).
+db_path = "flashcards.db"
+
+# Rétention cible FSRS en régime normal (hors examen proche).
+retention_normale = 0.90
+# Rétention cible le jour d'un examen: plus haute, donc intervalles plus
+# courts et révisions plus fréquentes pour les cartes concernées.
+retention_test = 0.97
+# Nombre de jours avant un examen pendant lesquels la rétention cible
+# monte progressivement de retention_normale vers retention_test.
+jours_phase_finale = 10
+# Marge de sécurité: une carte liée à un examen est planifiée au plus tard
+# ce nombre de jours avant la date de l'examen.
+buffer_jours_avant_test = 1
+
+# Plafond quotidien, en POINTS (et non plus en nombre de questions): chaque
+# carte pèse un certain nombre de points, voir [scheduler.poids_type]. Le
+# surplus n'est jamais perdu: il reste dû et repasse le lendemain, avec une
+# priorité plus élevée. Une carte plus lourde que le plafond compte pour le
+# plafond entier: elle reste toujours planifiable (seule dans la journée).
+plafond_quotidien = 40
+
+# Répartition entre thèmes (mode test): le plafond se partage à parts égales
+# entre les thèmes qui ont des cartes à faire (4 thèmes, 40 pts = 10 pts chacun),
+# pour ne pas travailler un seul thème pendant une heure. Ce qu'un thème n'utilise
+# pas retourne aux autres. Exception: un thème dont le test est dans au plus
+# N jours (0 = le jour même) passe en priorité, sans limite de part.
+jours_focus_test = 2
+
+# Mode entretien: un thème dont tous les tests sont passés (ou sans test) n'est
+# plus piloté par une date de test mais par un quota hebdomadaire.
+# Points par semaine et par thème en entretien (plancher: si FSRS a déjà planifié
+# assez de cartes du thème dans la semaine, rien n'est ajouté).
+entretien_quota_hebdo = 3.0
+# Plafond global d'entretien par jour, tous thèmes confondus (points).
+entretien_plafond_jour = 8.0
+# On complète le quota de préférence avec des cartes de poids <= cette valeur
+# (repli sur les plus lourdes seulement s'il n'y a rien d'autre).
+entretien_poids_max = 2.0
+
+# Poids par type de question (points). Résolution du poids d'une carte, par
+# priorité: poids explicite de la carte, puis catégorie du concept
+# ([scheduler.poids_categorie]), puis type.
+[scheduler.poids_type]
+exact = 0.5
+cloze = 0.5
+qcm = 0.5
+libre_llm = 1.0
+probleme = 2.0
+redaction = 4.0
+
+[scheduler.poids_categorie]
+vocabulaire = 0.1
+
+[budget]
+# Protection du crédit API. Toutes ces valeurs sont surchargeables par
+# variable d'environnement (voir .env.example) pour pouvoir resserrer les
+# plafonds sur le serveur sans redéployer.
+#
+# Quand un plafond est atteint, l'appel est REFUSÉ et inscrit au registre.
+# Aucun contournement silencieux.
+cout_max_jour_usd = 1.00
+cout_max_mois_usd = 5.00
+cout_max_operation_usd = 0.50
+appels_max_par_minute = 10
+
+# Disjoncteur: après N échecs d'API consécutifs, on arrête d'appeler.
+echecs_avant_disjoncteur = 3
+duree_disjoncteur_minutes = 10
+
+# Limites d'entrée, appliquées avant tout appel.
+max_fichier_mo = 20
+max_pages_pdf = 60
+max_images = 10
+max_caracteres_texte = 50000
+# Somme des fichiers d'un même envoi (la requête API plafonne à 32 Mo).
+max_total_mo = 24

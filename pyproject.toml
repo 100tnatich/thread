@@ -1,0 +1,36 @@
+[project]
+name = "flashcards"
+version = "0.1.0"
+description = "Add your description here"
+authors = [
+    { name = "100TNatich", email = "100tnatich@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic>=1.11.0",
+    "fastapi>=0.142.2",
+    "fsrs>=6.3.2",
+    "httpx>=0.28.1",
+    "itsdangerous>=2.2.0",
+    "matplotlib>=3.11.2",
+    "passlib[argon2]>=1.7.4",
+    "pydantic>=2.13.5",
+    "pypdf>=6.19.0",
+    "python-dotenv>=1.2.4",
+    "python-multipart>=0.0.32",
+    "typer>=0.27.2",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[project.scripts]
+flashcards = "flashcards:main"
+
+[build-system]
+requires = ["uv_build>=0.12.23,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=9.1.1",
+]

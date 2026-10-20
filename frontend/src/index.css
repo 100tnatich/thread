@@ -1,0 +1,147 @@
+@import 'tailwindcss';
+/* Polices auto-hébergées: aucune requête externe, la PWA marche hors ligne. */
+@import '@fontsource-variable/inter';
+@import '@fontsource-variable/jetbrains-mono';
+@import 'katex/dist/katex.min.css';
+
+/* Design system — thème sombre.
+   Tokens réutilisables: toute couleur de l'app vient d'ici, jamais d'une
+   valeur hexadécimale écrite dans un composant. */
+@theme {
+  --color-fond: #0b0d12;
+  --color-surface: #12151c;
+  --color-surface-haute: #1a1e28;
+  --color-bordure: #262b38;
+
+  --color-texte: #e8eaf0;
+  --color-texte-doux: #8a91a5;
+
+  --color-accent: #8b7cff;
+  --color-accent-doux: #8b7cff22;
+
+  --color-bien: #4ade9f;
+  --color-facile: #5cc8ff;
+  --color-difficile: #f5b84a;
+  --color-rate: #ff6b7a;
+
+  --font-sans:
+    'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI',
+    sans-serif;
+  --font-mono:
+    'JetBrains Mono Variable', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  --radius-carte: 14px;
+
+  --ease-doux: cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--color-fond);
+    color: var(--color-texte);
+    font-family: var(--font-sans);
+    /* Évite le "rubber band" blanc en bas sur iOS en mode PWA. */
+    overscroll-behavior-y: none;
+  }
+
+  /* Focus visible partout: navigation clavier exigée par l'accessibilité. */
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Cibles tactiles confortables sur téléphone. */
+  button,
+  [role='button'] {
+    touch-action: manipulation;
+  }
+
+  ::selection {
+    background: var(--color-accent-doux);
+  }
+}
+
+@layer utilities {
+  .zone-sure {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .animer-entree {
+    animation: entree 0.22s var(--ease-doux) both;
+  }
+
+  @keyframes entree {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  /* Page de connexion: le fil se tisse une fois, puis les points de couture
+     apparaissent. `pathLength=1` côté SVG: le trait se dessine de 0 à 100 %. */
+  .fil-tisse {
+    stroke-dasharray: 1;
+    animation: tisser 1.6s var(--ease-doux) 0.1s both;
+  }
+  .fil-coutures {
+    animation: apparaitre 0.8s var(--ease-doux) 1.4s both;
+  }
+
+  @keyframes tisser {
+    from {
+      stroke-dashoffset: 1;
+    }
+    to {
+      stroke-dashoffset: 0;
+    }
+  }
+  @keyframes apparaitre {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  .animer-secousse {
+    animation: secousse 0.3s var(--ease-doux);
+  }
+
+  @keyframes secousse {
+    0%,
+    100% {
+      transform: translateX(0);
+    }
+    25% {
+      transform: translateX(-5px);
+    }
+    75% {
+      transform: translateX(5px);
+    }
+  }
+}
+
+/* Respecte le réglage système "réduire les animations". */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+.katex {
+  font-size: 1.05em;
+}

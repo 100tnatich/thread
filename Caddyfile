@@ -1,0 +1,53 @@
+# HTTPS automatique via Let's Encrypt (HTTP est redirigé vers HTTPS par Caddy).
+# DOMAIN et ACME_EMAIL viennent du .env.
+{
+	email {$ACME_EMAIL}
+	# Défaut = Let's Encrypt production (posé dans docker-compose.yml).
+	acme_ca {$ACME_CA}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	header {
+		# En-têtes communs à toutes les réponses.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "same-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+		Cross-Origin-Opener-Policy "same-origin"
+		-Server
+	}
+
+	# L'API est servie par le backend (qui pose sa propre CSP, plus stricte).
+	handle /api/* {
+		# Plafond de taille AVANT le backend: un envoi anonyme de plusieurs Go
+		# est coupé ici. Doit rester >= MAX_REQUETE_OCTETS (web/app.py).
+		request_body {
+			max_size 32MB
+		}
+		reverse_proxy backend:8000
+	}
+
+	# Tout le reste: le build statique du frontend (SPA).
+	handle {
+		root * /srv
+
+		# Politique de contenu: l'app ne charge rien d'externe (polices
+		# auto-hébergées) et n'a aucun script en ligne. Même si du contenu
+		# généré par le modèle contenait du code, il ne pourrait ni s'exécuter
+		# ni envoyer de données ailleurs. `style-src 'unsafe-inline'`: KaTeX
+		# positionne les formules avec des attributs style. `img-src data:`:
+		# les schémas SVG sont rendus en <img src="data:...">.
+		header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+
+		# Le service worker ne doit jamais être servi depuis le cache: sinon
+		# une mise à jour de l'app peut ne jamais arriver sur le téléphone.
+		@sw path /sw.js /registerSW.js
+		header @sw Cache-Control "no-cache, no-store, must-revalidate"
+
+		try_files {path} /index.html
+		file_server
+	}
+}

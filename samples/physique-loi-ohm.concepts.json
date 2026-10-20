@@ -1,0 +1,17 @@
+{
+  "cours": "physique",
+  "source": "physique-loi-ohm.pdf",
+  "concepts": [
+    {
+      "id": "c1",
+      "titre": "D'ohm",
+      "categorie": "definition",
+      "resume": "[MOCK] Concept « d'ohm » du thème physique. Généré sans appel LLM.",
+      "source": "page 1",
+      "importance": "essentiel",
+      "adapte_calcul": false
+    }
+  ],
+  "avertissements": [],
+  "validated": true
+}

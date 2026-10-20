@@ -1,0 +1,22 @@
+# Rien de tout cela ne doit pouvoir entrer dans une image.
+.env
+.env.*
+!.env.example
+.git
+.venv
+*.db
+*.db-wal
+*.db-shm
+uploads/
+uploads-e2e/
+backups/
+logs/
+inbox/
+sorties/
+frontend/
+tests/
+docs/
+.claude/
+.gstack/
+.pytest_cache/
+__pycache__/

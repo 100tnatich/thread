@@ -1,0 +1,40 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Secrets
+.env
+
+# Logs (tokens/coût), régénérés à chaque appel
+logs/*.jsonl
+.gstack/
+
+# Frontend
+node_modules/
+frontend/dist/
+frontend/dev-dist/
+frontend/test-results/
+frontend/playwright-report/
+
+# Bases de données et uploads locaux
+*.db
+*.db-wal
+*.db-shm
+uploads/
+uploads-e2e/
+depot-e2e/
+backups/
+
+# Workflow manuel (Claude Code): sources de cours et sorties, jamais versionnées.
+# Les dossiers restent (via .gitkeep), pas leur contenu.
+inbox/*
+!inbox/.gitkeep
+sorties/*
+!sorties/.gitkeep

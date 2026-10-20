@@ -1,0 +1,107 @@
+services:
+  backend:
+    build: .
+    restart: unless-stopped
+    environment:
+      FLASHCARDS_ENV: production
+      FLASHCARDS_DB: /data/flashcards.db
+      FLASHCARDS_UPLOADS: /data/uploads
+      FLASHCARDS_DEPOT: /data/depot
+      FLASHCARDS_BACKUPS: /data/backups
+      # Secrets: définis dans .env, jamais en dur ici.
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET manquant}
+      ADMIN_USER: ${ADMIN_USER:-nate}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      # Même clé si elle est écrite en OpenRouter_API_KEY dans .env (le code lit les deux).
+      OpenRouter_API_KEY: ${OpenRouter_API_KEY:-}
+      # --- Crédit API -------------------------------------------------------
+      # Simulé par défaut. La vraie API demande FLASHCARDS_LLM_REEL=1 ET une
+      # clé; MOCK_LLM=1 ou LLM_DISABLED=1 coupent tout, quoi qu'il arrive.
+      FLASHCARDS_LLM_REEL: ${FLASHCARDS_LLM_REEL:-0}
+      # Correction par IA (OpenRouter): réelle seulement avec la clé ET =1.
+      FLASHCARDS_JUGE_REEL: ${FLASHCARDS_JUGE_REEL:-0}
+      FLASHCARDS_JUGE_MODELE: ${FLASHCARDS_JUGE_MODELE:-}
+      MOCK_LLM: ${MOCK_LLM:-0}
+      LLM_DISABLED: ${LLM_DISABLED:-0}
+      # Plafonds (USD). Vides = valeurs de config.toml (1 / 5 / 0,50).
+      FLASHCARDS_COUT_MAX_JOUR: ${FLASHCARDS_COUT_MAX_JOUR:-}
+      FLASHCARDS_COUT_MAX_MOIS: ${FLASHCARDS_COUT_MAX_MOIS:-}
+      FLASHCARDS_COUT_MAX_OPERATION: ${FLASHCARDS_COUT_MAX_OPERATION:-}
+      FLASHCARDS_APPELS_MAX_MINUTE: ${FLASHCARDS_APPELS_MAX_MINUTE:-}
+    volumes:
+      - donnees:/data
+    # Jamais `ports:` ici: seul Caddy est joignable depuis internet.
+    expose:
+      - "8000"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 768m
+    pids_limit: 256
+
+  # Construit le frontend et dépose les fichiers statiques dans le volume
+  # partagé avec Caddy, puis reste en vie sans rien faire.
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    volumes:
+      - statique:/srv
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  caddy:
+    # Version figée (pas `2-alpine`, qui change sans prévenir). À mettre à
+    # jour volontairement: https://hub.docker.com/_/caddy/tags
+    image: caddy:2.11.7-alpine
+    restart: unless-stopped
+    depends_on:
+      - backend
+      - frontend
+    environment:
+      DOMAIN: ${DOMAIN:?DOMAIN manquant}
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL manquant}
+      # Autorité de certification. Pour les premiers essais, mets l'URL de
+      # staging (voir .env.example): pas de limite de débit, certificat non
+      # reconnu par les navigateurs.
+      ACME_CA: ${ACME_CA:-https://acme-v02.api.letsencrypt.org/directory}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - statique:/srv:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    security_opt:
+      - no-new-privileges:true
+
+  # DNS dynamique (IP de la maison qui change): met à jour l'enregistrement A
+  # chez Infomaniak. Activé par le profil `ddns` (COMPOSE_PROFILES=ddns dans
+  # .env). Sans port publié: son interface web n'est pas joignable.
+  ddns:
+    image: ghcr.io/qdm12/ddns-updater:v2.10.0
+    profiles: ["ddns"]
+    restart: unless-stopped
+    environment:
+      CONFIG: >-
+        {"settings":[{"provider":"infomaniak","domain":"${DOMAIN:?DOMAIN manquant}","username":"${DDNS_USER:?DDNS_USER manquant}","password":"${DDNS_PASSWORD:?DDNS_PASSWORD manquant}","ip_version":"ipv4"}]}
+      PERIOD: 5m
+    volumes:
+      - ddns_data:/updater/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  ddns_data:
+  donnees:
+  statique:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,12 @@
+{
+  "source": "physique-loi-ohm.pdf",
+  "total_concepts": 1,
+  "concepts_sans_question": [],
+  "details": [
+    {
+      "concept_id": "c1",
+      "titre": "D'ohm",
+      "nb_questions": 2
+    }
+  ]
+}
