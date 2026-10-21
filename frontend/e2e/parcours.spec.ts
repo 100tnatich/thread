@@ -1,4 +1,5 @@
 import { type Browser, expect, test, type Page } from '@playwright/test'
+import { lirePort } from '../lire-env.ts'
 
 /**
  * Parcours complet en mode simulé: connexion → ajout de matière par texte →
@@ -515,7 +516,7 @@ test('mode par cours: un menu permet de ne réviser qu\'un cours', async ({ page
 // --- Rôles et dépôt ---------------------------------------------------------
 
 async function connexionComme(browser: Browser, identifiant: string, mdp: string) {
-  const contexte = await browser.newContext({ baseURL: 'http://127.0.0.1:5174' })
+  const contexte = await browser.newContext({ baseURL: `http://127.0.0.1:${lirePort('PORT_E2E_WEB')}` })
   const page = await contexte.newPage()
   await page.goto('/')
   await page.getByLabel('Identifiant').fill(identifiant)

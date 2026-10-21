@@ -564,13 +564,13 @@ Installable sur l'écran d'accueil du téléphone.
 export MOCK_LLM=1 SESSION_SECRET=dev   # `serve` en écoute locale = mode développement
 uv run flashcards web create-user --identifiant nate
 uv run flashcards web seed-demo        # 5 cours, 17 questions, 4 tests fictifs
-uv run flashcards web serve --reload
+uv run flashcards web serve --port "$PORT_API" --reload   # PORT_API = 8101 (.env)
 
 # Terminal 2 — frontend
 cd frontend && npm install && npm run dev
 ```
 
-Puis `http://localhost:5173`.
+Puis `http://localhost:5201` (ports lus dans `.env`: `PORT_WEB` / `PORT_API`, formule des conventions; `./run.sh` les transmet).
 
 ### Comptes et rôles
 

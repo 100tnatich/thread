@@ -234,7 +234,7 @@ def test_aucune_injection_html_brute_dans_le_frontend():
 
 
 def test_csp_de_la_page_sans_script_en_ligne():
-    caddy = (RACINE / "Caddyfile").read_text()
+    caddy = (RACINE / "web" / "Caddyfile").read_text()
     assert "Content-Security-Policy" in caddy
     assert "script-src 'self';" in caddy
     assert "object-src 'none'" in caddy and "frame-ancestors 'none'" in caddy

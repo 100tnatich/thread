@@ -1,323 +1,61 @@
-# Déploiement sur ton domaine
+# Déploiement de Thread
 
-Cible : un petit VPS Linux (Ubuntu 22.04 ou 24.04), 1 vCPU / 1 Go de RAM
-suffisent. Tout tourne derrière Caddy, qui obtient et renouvelle le
-certificat HTTPS tout seul.
+Thread suit les conventions de **`~/infra/CONVENTIONS.md`** (appli n°01): aucun Caddy public, DDNS ni `ACME_*` ici, aucun port publié.
+Il fournit deux conteneurs: **`thread-web`** (Caddy 8080: frontend + `/api` → `thread-api`, CSP, non-root) et **`thread-api`** (FastAPI,
+réseau interne seulement). Le **Caddy central** (`~/infra/gateway/`) joint `thread-web:8080` par le réseau Docker `web` et gère HTTPS + DNS dynamique.
 
----
+| Fichier | Rôle |
+|---|---|
+| `docker-compose.yml` | `web` (alias `thread-web`) + `api` (alias `thread-api`, réseau `interne`), volumes `donnees` et `logs` |
+| `web/Dockerfile`, `web/Caddyfile` | build du frontend + Caddy statique; CSP, taille des requêtes, `sw.js` jamais en cache |
+| `Dockerfile` | image du backend (Python 3.12, uv, utilisateur 10001) |
+| `.env` / `.env.example` | identité, ports de dev, secrets, plafonds LLM |
+| `~/infra/gateway/sites/thread.caddy` | branche `thread.nategroup.ch` sur `thread-web:8080` |
 
-## 1. DNS — faire pointer le sous-domaine vers le serveur
-
-Chez ton registrar (Infomaniak, OVH, Hostpoint…), dans la zone DNS de
-`mondomaine.ch`, ajoute **un enregistrement A** :
-
-| Type | Nom      | Valeur              | TTL  |
-| ---- | -------- | ------------------- | ---- |
-| A    | `cartes` | `203.0.113.42`      | 3600 |
-
-`203.0.113.42` = l'adresse IPv4 de ton VPS. Le nom `cartes` donne
-`cartes.mondomaine.ch`.
-
-Si ton VPS a aussi une IPv6, ajoute un enregistrement `AAAA` avec la même
-logique.
-
-**Vérifie que ça a pris** (peut prendre de quelques minutes à 1 h) :
+## Développement
 
 ```bash
-dig +short cartes.mondomaine.ch
-# doit afficher l'IP de ton VPS
+./run.sh              # http://localhost:5201 (API 8101), ports lus dans .env
+./run.sh --docker     # le vrai montage (réseau `web` requis: docker network create web)
 ```
 
-Ne lance pas le déploiement avant que cette commande réponde : Let's Encrypt
-a besoin que le domaine pointe déjà vers le serveur pour délivrer le
-certificat.
-
----
-
-## 2. Préparer le serveur
-
-Connecte-toi en SSH, puis :
+## Déployer (une fois la bascule faite)
 
 ```bash
-# Docker + compose
-curl -fsSL https://get.docker.com | sudo sh
-sudo usermod -aG docker $USER
-# déconnecte-toi et reconnecte-toi pour que le groupe prenne effet
-
-# Pare-feu: n'ouvrir que SSH et le web
-sudo ufw allow OpenSSH
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
-sudo ufw allow 443/udp   # HTTP/3
-sudo ufw enable
+~/infra/bin/deploy.sh thread          # pull, build, up, healthcheck, sondes (/ et /api/me → 401), conformité
 ```
 
----
+## Bascule de la production actuelle vers ce montage — À FAIRE (coupure de quelques minutes)
 
-## 3. Récupérer le code et configurer
+État actuel: `thread-caddy-1` tient 80/443 et `thread-ddns-1` met à jour `test.nategroup.ch` avec l'**ancien** compose.
+Tant que la bascule n'est pas faite, ces conteneurs continuent de tourner (le nouveau compose n'y touche pas).
+
+1. **Sauvegarde** (ancien montage encore en place): `docker compose exec backend flashcards web backup`, et copie du dossier de sauvegardes hors machine.
+2. **Fusionner** la branche `conventions-infra` dans `main` (le nouveau compose doit être celui qu'on déploie).
+3. **Arrêter l'ancien montage en entier** (libère 80/443 et évite deux backends sur la même base SQLite; le volume `thread_donnees` est conservé,
+   c'est le même nom dans le nouveau compose): `docker stop thread-caddy-1 thread-ddns-1 thread-backend-1 thread-frontend-1`,
+   puis `docker compose up -d --remove-orphans` (démarre `web` et `api`, retire les anciens conteneurs).
+4. **Gateway**: dans `~/infra/gateway/.env`, activer `COMPOSE_PROFILES=ddns` (les identifiants DDNS y sont déjà), puis
+   `cd ~/infra/gateway && docker compose up -d`. Le réseau `web` doit exister.
+5. **Thread**: `~/infra/bin/deploy.sh thread`.
+6. **DNS**: l'enregistrement dynamique s'appelle aujourd'hui `test.nategroup.ch` (ancien `DOMAIN`). Pour servir `thread.nategroup.ch`:
+   CNAME `thread` → l'enregistrement DDNS du gateway (ou renommer l'enregistrement). Point ouvert dans `~/infra/JOURNAL.md`.
+7. **Vérifier**: `curl -sI https://thread.nategroup.ch/ | grep -iE 'content-security-policy|strict-transport'` et `curl -s -o /dev/null -w '%{http_code}' https://thread.nategroup.ch/api/me` → 401.
+8. **Hub**: `~/infra/bin/publish-app.sh thread --tagline … --description …` (le hub a déjà une entrée `thread`; elle sera mise à jour).
+
+Retour arrière: arrêter le gateway (`docker compose -f ~/infra/gateway/docker-compose.yml down`), `git switch --detach 164bcca` (dernier commit de l'ancien montage),
+`docker compose up -d --build --remove-orphans` (rend 80/443 à l'ancien Caddy), puis `git switch main`. Les données (`thread_donnees`) restent intactes.
+
+## Sauvegardes et données
+
+La base SQLite est dans le volume `donnees` (`/data` dans `thread-api`). Sauvegarde quotidienne automatique (14 jours) dans `/data/backups`,
+et à la demande: `docker compose exec api flashcards web backup`. **La seule étape vraiment importante**: copier les sauvegardes hors de la machine
+et tester une restauration. Voir l'ancienne procédure détaillée dans l'historique git (`git show main:DEPLOY.md`), toujours valable pour la restauration
+en remplaçant `backend` par `api`.
+
+## Vérifier la conformité
 
 ```bash
-git clone <url-de-ton-depot> flashcards
-cd flashcards
-
-cp .env.example .env
-chmod 600 .env        # lisible par toi seul: il contient tes secrets
-nano .env
+~/infra/bin/verify-kit.sh --app .       # doit finir sans ✗ (2 ⚠ = dérogations déclarées)
+docker compose ps                       # aucun port publié (pas de « -> »)
 ```
-
-Remplis au minimum :
-
-```ini
-DOMAIN=cartes.mondomaine.ch
-ACME_EMAIL=moi@mondomaine.ch
-SESSION_SECRET=<colle ici le résultat de: openssl rand -hex 32>
-ADMIN_PASSWORD=<un mot de passe fort, 12 caractères minimum>
-```
-
-`SESSION_SECRET` doit faire au moins 32 caractères: le serveur refuse de
-démarrer sinon.
-
-`ANTHROPIC_API_KEY` peut rester vide : l'app démarre en **mode simulé** et
-tout fonctionne sauf la vraie génération de questions. Tu la rempliras plus
-tard (section 9). Tant que `FLASHCARDS_LLM_REEL` ne vaut pas `1`, aucune
-dépense n'est possible, même avec une clé.
-
-> `.env` est dans `.gitignore`. Ne le commite jamais.
-
----
-
-## 4. Premier lancement
-
-```bash
-docker compose up -d --build
-```
-
-Le premier build prend quelques minutes (image Python + build du frontend).
-Ensuite :
-
-```bash
-docker compose logs -f caddy      # doit montrer l'obtention du certificat
-docker compose logs -f backend    # doit montrer "Compte web créé depuis ADMIN_PASSWORD"
-```
-
-Ouvre `https://cartes.mondomaine.ch` : l'écran de connexion s'affiche.
-Connecte-toi avec `ADMIN_USER` / `ADMIN_PASSWORD`.
-
-**Juste après la première connexion :**
-
-1. Va dans **Réglages → Mot de passe** et change-le.
-2. Vide `ADMIN_PASSWORD` dans `.env` (il n'est utilisé que pour créer le
-   compte initial), puis `docker compose up -d` pour appliquer.
-
-### Remplir l'app avec des données de démonstration (optionnel)
-
-```bash
-docker compose exec backend flashcards web seed-demo
-```
-
-Crée 5 cours, 17 questions et 4 tests fictifs pour voir l'interface remplie.
-
-### Créer le compte à la main (si tu préfères)
-
-```bash
-docker compose exec backend flashcards web create-user --identifiant nate
-# le mot de passe est demandé de façon interactive, jamais en clair dans l'historique
-```
-
----
-
-## 5. Installer sur le téléphone
-
-Ouvre `https://cartes.mondomaine.ch` dans le navigateur du téléphone, puis :
-
-- **Android / Chrome** : menu ⋮ → « Ajouter à l'écran d'accueil ».
-- **iPhone / Safari** : bouton Partager → « Sur l'écran d'accueil ».
-
-L'app s'ouvre alors en plein écran, sans barre d'adresse.
-
----
-
-## 6. Mettre à jour
-
-```bash
-cd flashcards
-git pull
-docker compose up -d --build
-```
-
-Les migrations SQLite s'appliquent automatiquement au démarrage du backend.
-Tes données sont dans un volume Docker, elles survivent au rebuild.
-
----
-
-## 7. Sauvegardes
-
-### Automatiques
-
-Le backend fait une **copie cohérente** de la base chaque jour (API `backup`
-de SQLite, pas un simple `cp`), dans `/data/backups` du volume, avec une
-rotation sur 14 jours. Rien à configurer.
-
-### Manuelle
-
-```bash
-docker compose exec backend flashcards web backup
-```
-
-### Copier les sauvegardes hors du serveur
-
-C'est **la seule étape vraiment importante** : une sauvegarde sur la même
-machine ne protège pas d'une perte du VPS.
-
-```bash
-# Depuis ta machine locale
-docker compose exec backend sh -c 'ls -1 /data/backups'
-scp -r user@203.0.113.42:/var/lib/docker/volumes/flashcards_donnees/_data/backups ./sauvegardes-flashcards
-```
-
-Mets ça dans un cron local hebdomadaire, ou pointe un rsync vers ton NAS.
-
----
-
-## 8. Restaurer une sauvegarde
-
-```bash
-# 1. Arrêter le backend pour qu'il n'écrive plus
-docker compose stop backend
-
-# 2. Lister les sauvegardes disponibles
-docker compose run --rm backend ls -1 /data/backups
-
-# 3. Mettre de côté la base actuelle (ne jamais écraser directement)
-docker compose run --rm backend sh -c \
-  'mv /data/flashcards.db /data/flashcards.db.avant-restauration'
-
-# 4. Restaurer celle que tu veux
-docker compose run --rm backend sh -c \
-  'cp /data/backups/flashcards-20261005-030000.db /data/flashcards.db'
-
-# 5. Redémarrer
-docker compose start backend
-```
-
-Vérifie que tout est là, puis supprime `flashcards.db.avant-restauration`.
-
----
-
-## 9. Activer la vraie génération de questions
-
-Quand tu auras une clé API :
-
-**Avant tout**, sur la console du fournisseur de l'API: désactive le
-rechargement automatique et fixe une limite de dépense mensuelle. C'est le
-seul plafond qui tient même si le code a un bug.
-
-```bash
-nano .env
-# ANTHROPIC_API_KEY=sk-ant-...
-# FLASHCARDS_LLM_REEL=1     <- l'activation explicite; sans elle, mode simulé
-# MOCK_LLM=0
-
-docker compose up -d
-```
-
-Dans **Réglages → Crédit API**, l'étiquette passe à « Mode réel ». La carte
-affiche la dépense du jour et du mois, les alertes à 80 % et un bouton d'arrêt
-d'urgence.
-
-### Variables de protection du crédit
-
-Toutes optionnelles; à poser dans `.env`. Vides = valeurs de `config.toml`.
-
-| Variable | Défaut | Rôle |
-|---|---|---|
-| `FLASHCARDS_LLM_REEL` | `0` | `1` = autorise les appels réels (avec une clé) |
-| `MOCK_LLM` | `0` | `1` = force le mode simulé |
-| `LLM_DISABLED` | `0` | `1` = interrupteur d'urgence, tout appel est refusé |
-| `FLASHCARDS_COUT_MAX_JOUR` | `1.00` | USD par jour (UTC) |
-| `FLASHCARDS_COUT_MAX_MOIS` | `5.00` | USD par mois |
-| `FLASHCARDS_COUT_MAX_OPERATION` | `0.50` | USD par extraction ou par génération entière |
-| `FLASHCARDS_APPELS_MAX_MINUTE` | `10` | cadence |
-| `FLASHCARDS_PLAFONDS_ELEVES` | — | `1` requis au-delà de 5 / 20 / 2 USD |
-
-Les quatre dernières lignes du tableau et les limites d'entrée
-(`FLASHCARDS_MAX_PAGES_PDF`, etc.) sont détaillées dans le README. Seules les
-variables listées dans `docker-compose.yml` atteignent le conteneur: ajoute-y
-celles qui manquent si tu en as besoin.
-
-### Couper les appels en urgence
-
-```bash
-docker compose exec backend flashcards llm off      # immédiat, sans redémarrage
-docker compose exec backend flashcards budget       # où en est la dépense
-docker compose exec backend flashcards llm on       # rétablir
-```
-
-Ou le bouton « Arrêt d'urgence » dans Réglages. Pour un arrêt que l'interface
-ne peut pas lever: `LLM_DISABLED=1` dans `.env`, puis `docker compose up -d`.
-
----
-
-## Développement local
-
-Deux terminaux, rechargement à chaud des deux côtés :
-
-```bash
-# Terminal 1 — API sur :8000
-export MOCK_LLM=1 SESSION_SECRET=dev   # ou simplement ./run.sh
-uv run flashcards web create-user --identifiant nate   # une seule fois
-uv run flashcards web seed-demo                        # données de démo
-uv run flashcards web serve --reload
-
-# Terminal 2 — frontend sur :5173 (proxy /api vers :8000)
-cd frontend && npm run dev
-```
-
-Tests :
-
-```bash
-uv run pytest                    # moteur + API
-cd frontend && npx playwright test   # parcours de bout en bout
-```
-
----
-
-## Checklist de sécurité avant publication
-
-La liste complète, avec les commandes de vérification, est à la fin de
-[`AUDIT.md`](AUDIT.md). Les points qui ne dépendent que de toi:
-
-- [ ] Limite de dépense fixée et rechargement automatique désactivé chez le
-      fournisseur de l'API.
-- [ ] `.env` en `600`, jamais commité; `SESSION_SECRET` généré par
-      `openssl rand -hex 32`; `ADMIN_PASSWORD` vidé après le premier démarrage.
-- [ ] `docker compose exec backend id` affiche `uid=10001(app)`.
-- [ ] `docker compose exec caddy caddy validate --config /etc/caddy/Caddyfile`.
-- [ ] Pare-feu: seuls 22, 80 et 443 ouverts.
-- [ ] `curl -sI https://ton-domaine/` montre `content-security-policy` et
-      `strict-transport-security`; `curl -s https://ton-domaine/api/me` répond 401.
-- [ ] Sauvegardes copiées hors du serveur, et une restauration testée.
-
-> Le conteneur backend tourne sous l'utilisateur `app` (uid 10001). Si tu as
-> déjà un volume `donnees` créé par une ancienne image en root:
-> `docker compose run --rm --user root backend chown -R app:app /data`.
-
----
-
-## Dépannage
-
-**Le certificat n'est pas délivré.** Vérifie `dig +short cartes.mondomaine.ch`
-et que les ports 80/443 sont ouverts. Let's Encrypt doit pouvoir joindre le
-serveur sur le port 80. `docker compose logs caddy` donne la raison exacte.
-
-**« Trop de tentatives » au login.** Protection anti-force brute : 5 échecs
-par IP bloquent 15 minutes. Attends, ou redémarre le backend
-(`docker compose restart backend`) — le compteur est en mémoire.
-
-**L'app ne se met pas à jour sur le téléphone.** Le service worker garde
-l'ancienne version. Ferme complètement l'app et rouvre-la, ou désinstalle et
-réinstalle le raccourci.
-
-**Je ne sais plus mon mot de passe.** Recrée le compte :
-`docker compose exec backend flashcards web create-user --identifiant nate`.
-Les données ne sont pas touchées.

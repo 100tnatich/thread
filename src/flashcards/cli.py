@@ -905,7 +905,11 @@ def web_backup(
 @web_app.command("serve")
 def web_serve(
     host: str = typer.Option("127.0.0.1", help="Adresse d'écoute."),
-    port: int = typer.Option(8000, help="Port."),
+    port: int | None = typer.Option(
+        None,
+        envvar="PORT_API",
+        help="Port (PORT_API de .env: formule 81NN, voir ~/infra/CONVENTIONS.md §3.2).",
+    ),
     reload: bool = typer.Option(False, help="Rechargement à chaud (développement)."),
 ) -> None:
     """Démarre l'API web (serveur de développement, écoute locale).
@@ -929,6 +933,13 @@ def web_serve(
         # Écoute locale: mode développement (cookie non Secure, CORS Vite).
         os.environ["FLASHCARDS_ENV"] = "development"
 
+    if port is None:
+        typer.echo(
+            "Erreur: port non défini. Passe --port, ou pose PORT_API (formule 81NN, "
+            "lue dans .env par ./run.sh).",
+            err=True,
+        )
+        raise typer.Exit(1)
     uvicorn.run("flashcards.web.app:app", host=host, port=port, reload=reload)
 
 

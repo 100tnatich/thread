@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
-# Lance l'appli web complète (API :8000 + interface :5173). Ctrl+C arrête tout.
+# Lance l'appli web complète (API sur PORT_API + interface sur PORT_WEB, lus dans .env). Ctrl+C arrête tout.
+# Conventions: ~/infra/CONVENTIONS.md §3.2 (ports) et §7 (run.sh).
 #   ./run.sh           extraction/génération simulées (aucun crédit Anthropic).
 #                      Correction par IA des réponses libres et rédactions: RÉELLE
 #                      (OpenRouter) si .env a OPENROUTER_API_KEY et FLASHCARDS_JUGE_REEL=1.
 #   ./run.sh --real    + vraie API Claude pour l'extraction/génération (ANTHROPIC_API_KEY)
 #   ./run.sh --simule  tout simulé, correction par IA comprise (aucune dépense possible)
+#   ./run.sh --docker  le montage de production (docker compose up --build, réseau Docker `web`)
+#   LAN=1 ./run.sh     idem dev, mais joignable depuis le réseau local (test téléphone); sinon 127.0.0.1
 # Lancé avec `. run.sh` / `source run.sh`, le script s'exécuterait dans ton shell
 # (set -e, exit, trap, kill 0 s'appliqueraient au terminal). On le relance donc
 # dans un bash séparé, et on rend la main proprement.
@@ -15,6 +18,12 @@ fi
 
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
+
+if [[ "${1:-}" == "--docker" ]]; then
+  command -v docker >/dev/null || { echo "docker introuvable."; exit 1; }
+  docker network inspect web >/dev/null 2>&1 || { echo "Réseau absent: docker network create web"; exit 1; }
+  exec docker compose up --build
+fi
 
 export PATH="$HOME/.local/bin:$PATH"
 export FLASHCARDS_ENV=development
@@ -28,6 +37,28 @@ lire_env() {
   [[ -f .env ]] || return 0
   { grep -iE "^$1=" .env || true; } | tail -1 | cut -d= -f2- | sed -E "s/^[\"']//; s/[\"']\$//"
 }
+
+# --- Ports: viennent de .env et doivent suivre la formule du numéro d'appli (conventions §3.2) ----
+NN="$(lire_env APP_NUMBER)"
+[[ "$NN" =~ ^[0-9]{2}$ ]] || { echo "APP_NUMBER invalide dans .env (2 chiffres, alloué dans ~/infra/JOURNAL.md)."; exit 1; }
+nn=$((10#$NN))
+# nom_variable:base — le port attendu est base + NN (ex. PORT_API=8100+01=8101)
+declare -A BASES=([PORT_API]=8100 [PORT_WEB]=5200 [PORT_E2E_WEB]=5300 [PORT_E2E_API]=8300 [PORT_TOOL]=9100)
+for var in "${!BASES[@]}"; do
+  val="$(lire_env "$var")"
+  [[ -z "$val" ]] && continue
+  attendu=$(( ${BASES[$var]} + nn ))
+  if [[ "$val" != "$attendu" ]]; then
+    echo "$var=$val ne respecte pas la formule (attendu $attendu pour l'appli $NN). Voir ~/infra/CONVENTIONS.md §3.2."
+    exit 1
+  fi
+done
+PORT_API="$(lire_env PORT_API)"
+PORT_WEB="$(lire_env PORT_WEB)"
+[[ -n "$PORT_API" && -n "$PORT_WEB" ]] || { echo "PORT_API / PORT_WEB manquants dans .env (voir .env.example)."; exit 1; }
+export PORT_API PORT_WEB   # PORT_WEB sert au CORS de développement du backend
+HOST=127.0.0.1
+[[ "${LAN:-0}" == "1" ]] && HOST=0.0.0.0
 
 if [[ "${1:-}" == "--real" ]]; then
   unset MOCK_LLM
@@ -76,10 +107,9 @@ command -v npm >/dev/null || { echo "npm introuvable."; exit 1; }
 uv sync --quiet
 [[ -d frontend/node_modules ]] || (cd frontend && npm install)
 
-# Ports déjà occupés ? Cause habituelle: un ancien ./run.sh dont le terminal a été
-# fermé (ou tué) a laissé uvicorn/vite tourner en arrière-plan. Si le processus
-# vient de CE projet, on l'arrête tout seul; sinon on dit qui l'occupe et on s'arrête.
-# (Docker n'est pas en cause: compose n'expose que 80/443, jamais 5173 ni 8000.)
+# Ports déjà occupés ? Cause habituelle: un ancien ./run.sh dont le terminal a été fermé
+# (ou tué) a laissé uvicorn/vite tourner en arrière-plan. Si le processus vient de CE
+# projet, on l'arrête tout seul; sinon on dit qui l'occupe et on s'arrête.
 pids_du_port() {
   lsof -t -iTCP:"$1" -sTCP:LISTEN 2>/dev/null \
     || ss -ltnpH "sport = :$1" 2>/dev/null | grep -oE 'pid=[0-9]+' | cut -d= -f2 \
@@ -90,24 +120,18 @@ est_a_nous() {  # le processus tourne-t-il depuis ce dossier ?
   cwd="$(readlink "/proc/$1/cwd" 2>/dev/null || true)"
   [[ "$cwd" == "$PWD" || "$cwd" == "$PWD"/* ]]
 }
-port_front=5173
-for port in 8000 5173; do
+liberer_port() {
+  local port="$1" pids pid
   pids="$(pids_du_port "$port" | sort -u | tr '\n' ' ')"
   if [[ -z "${pids// /}" ]]; then
     # Rien côté Linux. Le port répond pourtant ? Alors c'est Windows qui le tient
-    # (WSL2 partage « localhost » avec Windows): typiquement une règle
-    # `netsh interface portproxy` oubliée, que ss/lsof ne voient pas.
-    (echo >/dev/tcp/127.0.0.1/"$port") 2>/dev/null || continue
-    if [[ "$port" == 5173 ]]; then
-      echo "⚠ Le port 5173 est tenu par Windows (probablement une règle portproxy oubliée)."
-      echo "  Pour le libérer (PowerShell en administrateur):  netsh interface portproxy delete v4tov4 listenport=5173 listenaddress=0.0.0.0"
-      echo "  En attendant, l'interface prendra le port suivant (regarde l'URL « Local » que Vite affiche juste après)."
-      port_front=""
-      continue
+    # (WSL2 partage « localhost » avec Windows): règle `netsh portproxy` oubliée.
+    if (echo >/dev/tcp/127.0.0.1/"$port") 2>/dev/null; then
+      echo "Le port $port est tenu par Windows (pas par un processus Linux): impossible de continuer."
+      echo "Voir: netsh interface portproxy show all   (PowerShell en administrateur pour supprimer la règle)."
+      exit 1
     fi
-    echo "Le port $port est tenu par Windows (pas par un processus Linux): impossible de continuer."
-    echo "Voir: netsh interface portproxy show all   (PowerShell en administrateur pour supprimer la règle)."
-    exit 1
+    return 0
   fi
   for pid in $pids; do
     if est_a_nous "$pid"; then
@@ -126,11 +150,9 @@ for port in 8000 5173; do
   done
   for pid in $(pids_du_port "$port"); do kill -9 "$pid" 2>/dev/null || true; done
   sleep 0.3
-  if [[ -n "$(pids_du_port "$port")" ]]; then
-    echo "Impossible de libérer le port $port."
-    exit 1
-  fi
-done
+  [[ -z "$(pids_du_port "$port")" ]] || { echo "Impossible de libérer le port $port."; exit 1; }
+}
+for port in $PORT_API $PORT_WEB; do liberer_port "$port"; done
 
 # Compte web: création interactive s'il n'existe pas encore
 a_un_compte=$(uv run python - <<'PY'
@@ -153,13 +175,9 @@ fi
 # HUP inclus: fermer le terminal laissait sinon uvicorn et vite orphelins (cause du « port occupé »).
 trap 'trap - INT TERM HUP EXIT; kill 0' INT TERM HUP EXIT
 
-uv run flashcards web serve --reload &
-(cd frontend && npm run dev -- --host) &   # --host: accessible depuis tout le réseau local
+uv run flashcards web serve --host "$HOST" --port "$PORT_API" --reload &
+(cd frontend && HOST="$HOST" npm run dev) &   # port (PORT_WEB) et strictPort: voir frontend/vite.config.ts
 
 echo
-if [[ -n "$port_front" ]]; then
-  echo "→ Ouvre http://localhost:5173   (Ctrl+C pour tout arrêter)"
-else
-  echo "→ Ouvre l'adresse « Local » affichée par Vite ci-dessous (≠ 5173)   (Ctrl+C pour tout arrêter)"
-fi
+echo "→ Ouvre http://localhost:$PORT_WEB   (Ctrl+C pour tout arrêter)"
 wait

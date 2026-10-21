@@ -16,8 +16,8 @@ uv run pytest                           # ~540 tests, tous en mock (pièges SDK 
 cd frontend && npx playwright test      # 10 tests E2E
 export MOCK_LLM=1 SESSION_SECRET=dev    # web, 2 terminaux
 uv run flashcards web create-user --identifiant nate [--role admin|standard|etendu]  # une fois (admin par défaut)
-uv run flashcards web seed-demo && uv run flashcards web serve --reload  # :8000
-cd frontend && npm run dev                                              # :5173
+./run.sh                                # API (PORT_API=8101) + front (PORT_WEB=5201), ports lus dans .env
+# (à la main: uv run flashcards web serve --port $PORT_API --reload; cd frontend && npm run dev)
 uv run flashcards extract <pdf> --cours X  # puis validated:true
 uv run flashcards generate <pdf> [--cours X]            # puis review
 uv run flashcards today | session | stats | simulate [--scenario annee|simple]
@@ -25,6 +25,7 @@ uv run flashcards budget; flashcards llm off|on|status   # dépense, arrêt d'ur
 # Appel réel = FLASHCARDS_LLM_REEL=1 + ANTHROPIC_API_KEY (une clé seule ne suffit pas)
 # Correction par IA (réponses libres, rédactions) = OpenRouter: FLASHCARDS_JUGE_REEL=1 + OPENROUTER_API_KEY
 ./run.sh [--real|--simule]   # --simule: tout factice; défaut: juge réel si .env l'active
+./run.sh --docker            # montage de production (réseau Docker `web`); LAN=1 ./run.sh = joignable sur le réseau local
 uv run flashcards matiere add --nom X; flashcards cours add --nom T --matiere X   # matière > thème
 uv run flashcards test add --cours A --cours B | --matiere X --date D --intitule I
 uv run flashcards cours archive|unarchive --nom T                                  # réversible
@@ -35,6 +36,21 @@ uv run flashcards import sorties/X_questions.json
 # Dépôt (compte étendu, page « Dépôt »): /generer-questions depot [N°]
 uv run flashcards depot list [--cours X] [--tout]; flashcards depot recuperer N; flashcards depot traite N
 ```
+
+## Conventions nategroup.ch (appli n°01)
+
+**Avant de toucher aux ports, au Docker, au domaine ou au `.env`: lire `/home/nate/infra/CONVENTIONS.md`**
+et la fiche de Thread dans `/home/nate/infra/JOURNAL.md`. Tout changement de port, de montage ou de domaine s'y écrit.
+
+- Ports de dev **par formule** (lus dans `.env`, jamais en dur): front `5201`, API `8101`, E2E `5301` / `8301`.
+  `run.sh` refuse de démarrer si `.env` s'écarte de la formule; Vite est en `strictPort`.
+- Production: **aucun port publié**. Conteneurs `thread-web` (Caddy 8080: frontend + `/api` → `thread-api:8000`, CSP) et `thread-api`
+  (FastAPI, réseau interne seulement). Le Caddy central du gateway (`~/infra/gateway`, `sites/thread.caddy`) gère HTTPS et DNS dynamique:
+  plus de Caddy, de DDNS ni de `ACME_*` dans ce projet.
+- Dérogations déclarées (`.kit/DEROGATIONS`): `api-racine` (le code Python est à la racine, pas dans `backend/`) et `csp-unsafe-inline` (KaTeX).
+- Conformité: `~/infra/bin/verify-kit.sh --app .`. Déploiement: `~/infra/bin/deploy.sh thread` ou `/deployer thread`.
+  **Bascule de la production actuelle vers ce montage: voir `DEPLOY.md` § « Bascule »** (non faite).
+- Dépôt GitHub: `100tnatich/thread`. Branche `conventions-infra` = mise aux conventions; fusion dans `main` au moment de la bascule.
 
 ## Architecture
 

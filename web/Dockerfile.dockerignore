@@ -1,0 +1,11 @@
+# Contexte de build de web/Dockerfile: seulement le frontend et le Caddyfile.
+*
+!frontend
+!web/Caddyfile
+**/node_modules
+frontend/dist
+frontend/dev-dist
+frontend/e2e
+frontend/test-results
+frontend/playwright-report
+*.db

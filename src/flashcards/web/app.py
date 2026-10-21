@@ -134,13 +134,15 @@ async def _garde(request: Request, call_next):
     return reponse
 
 
-# En développement le front (Vite, port 5173) appelle l'API sur un autre port.
-# En production tout passe par Caddy sur la même origine: pas de CORS.
+# En développement le front (Vite) appelle l'API sur un autre port: PORT_WEB (formule 52NN,
+# posé par run.sh). Sans PORT_WEB, pas de CORS (le proxy de Vite rend la même origine).
+# En production tout passe par thread-web sur la même origine: pas de CORS.
 # (Ajouté après le garde: CORS reste donc la couche la plus externe.)
-if auth.en_developpement():
+if auth.en_developpement() and os.environ.get("PORT_WEB"):
+    _port_web = os.environ["PORT_WEB"]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+        allow_origins=[f"http://localhost:{_port_web}", f"http://127.0.0.1:{_port_web}"],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

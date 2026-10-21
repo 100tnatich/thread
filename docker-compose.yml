@@ -1,5 +1,36 @@
+# Montage de production de Thread (app 01). Voir ~/infra/CONVENTIONS.md.
+# AUCUN `ports:` ici: seul le Caddy central du gateway (~/infra/gateway) publie 80/443.
+# Réseau partagé à créer une fois:  docker network create web
+name: thread
+
 services:
-  backend:
+  # Conteneur d'entrée: frontend statique + routage /api. Le seul joint par le gateway.
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    restart: unless-stopped
+    expose:
+      - "8080"
+    networks:
+      web:
+        aliases: [thread-web]   # jamais de nom générique sur le réseau partagé
+      interne: {}
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /data
+      - /config
+    user: "10001:10001"
+    mem_limit: 128m
+    pids_limit: 64
+
+  # Backend FastAPI + moteur de planification: joint UNIQUEMENT par thread-web (réseau interne).
+  api:
     build: .
     restart: unless-stopped
     environment:
@@ -32,76 +63,30 @@ services:
       FLASHCARDS_APPELS_MAX_MINUTE: ${FLASHCARDS_APPELS_MAX_MINUTE:-}
     volumes:
       - donnees:/data
-    # Jamais `ports:` ici: seul Caddy est joignable depuis internet.
+      # Journaux d'usage (tokens/coût), au mieux: le registre SQLite fait foi. Volume pour que
+      # le conteneur reste en lecture seule.
+      - logs:/app/logs
+    # Jamais `ports:` ici: seul le Caddy central est joignable depuis internet.
     expose:
       - "8000"
+    networks:
+      interne:
+        aliases: [thread-api]   # sur `interne` SEULEMENT, jamais sur `web`
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
     mem_limit: 768m
     pids_limit: 256
 
-  # Construit le frontend et dépose les fichiers statiques dans le volume
-  # partagé avec Caddy, puis reste en vie sans rien faire.
-  frontend:
-    build: ./frontend
-    restart: unless-stopped
-    volumes:
-      - statique:/srv
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-
-  caddy:
-    # Version figée (pas `2-alpine`, qui change sans prévenir). À mettre à
-    # jour volontairement: https://hub.docker.com/_/caddy/tags
-    image: caddy:2.11.7-alpine
-    restart: unless-stopped
-    depends_on:
-      - backend
-      - frontend
-    environment:
-      DOMAIN: ${DOMAIN:?DOMAIN manquant}
-      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL manquant}
-      # Autorité de certification. Pour les premiers essais, mets l'URL de
-      # staging (voir .env.example): pas de limite de débit, certificat non
-      # reconnu par les navigateurs.
-      ACME_CA: ${ACME_CA:-https://acme-v02.api.letsencrypt.org/directory}
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - statique:/srv:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    security_opt:
-      - no-new-privileges:true
-
-  # DNS dynamique (IP de la maison qui change): met à jour l'enregistrement A
-  # chez Infomaniak. Activé par le profil `ddns` (COMPOSE_PROFILES=ddns dans
-  # .env). Sans port publié: son interface web n'est pas joignable.
-  ddns:
-    image: ghcr.io/qdm12/ddns-updater:v2.10.0
-    profiles: ["ddns"]
-    restart: unless-stopped
-    environment:
-      CONFIG: >-
-        {"settings":[{"provider":"infomaniak","domain":"${DOMAIN:?DOMAIN manquant}","username":"${DDNS_USER:?DDNS_USER manquant}","password":"${DDNS_PASSWORD:?DDNS_PASSWORD manquant}","ip_version":"ipv4"}]}
-      PERIOD: 5m
-    volumes:
-      - ddns_data:/updater/data
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
+networks:
+  web:
+    external: true
+  interne: {}
 
 volumes:
-  ddns_data:
   donnees:
-  statique:
-  caddy_data:
-  caddy_config:
+  logs:

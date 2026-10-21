@@ -1,0 +1,3 @@
+# Écarts assumés (CONVENTIONS.md §14). Une ligne: code: justification.
+api-racine: appli antérieure au starter-kit; le code Python (src/flashcards, tests/, migrations, prompts, profiles) est à la racine du projet; le déplacer dans backend/ n'apporterait rien et casserait l'historique git et les chemins relatifs de config.toml, des migrations et des tests (576)
+csp-unsafe-inline: KaTeX positionne les formules avec des attributs style; seul style-src est concerné (script-src reste 'self' sans inline)

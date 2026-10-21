@@ -1,5 +1,10 @@
 # Accès depuis internet, depuis la maison (WSL + Docker)
 
+> **Mis à jour 2026-10-21 (conventions v2).** Le Caddy, le HTTPS et le DNS dynamique ne sont plus dans ce projet:
+> ils sont tenus par le **gateway** (`~/infra/gateway`), commun à toutes les applis. Les sections « DNS dynamique » et
+> « Lancer » ci-dessous décrivent l'ancien montage; les parties **routeur (80/443), Windows (mirrored, pare-feu)**
+> et **dépannage** restent valables telles quelles. Montage actuel et bascule: `DEPLOY.md` et `~/infra/CONVENTIONS.md` §4.
+
 But: `https://thread.nategroup.ch` joint l'appli qui tourne sur ton PC, le temps
 des tests. Le même montage sert ensuite pour le vrai serveur (seule la cible du
 port forwarding change).

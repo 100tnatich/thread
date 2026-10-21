@@ -433,3 +433,16 @@ pendant les migrations, avec `PRAGMA foreign_key_check` ensuite.
 **`FLASHCARDS_DB` centralisé dans `config.load_config`.** Le CLI et le serveur
 web résolvaient le chemin différemment, ce qui aurait cassé `seed-demo` et
 `backup` en production.
+
+## 2026-10-21 — Mise aux conventions nategroup.ch (branche `conventions-infra`)
+
+- Appli n°**01**: ports de dev par formule (front 5201, API 8101, E2E 5301 / 8301) lus dans `.env`; `run.sh` valide la formule et passe en
+  `127.0.0.1` par défaut (`LAN=1` pour le réseau local); Vite en `strictPort`; CORS de dev et port de `flashcards web serve` lus dans
+  `PORT_WEB` / `PORT_API`; Playwright lit ses ports E2E dans `.env` (plus de 8001/5174 en dur).
+- Production: plus de Caddy public, de DDNS ni de service `frontend`. `web/` (Dockerfile node + Caddy 8080, `Caddyfile` = ancienne CSP +
+  routage `/api` → `thread-api:8000`) et `api` (backend, réseau interne, `read_only`, volumes `donnees` et `logs`). Le gateway
+  (`~/infra/gateway/sites/thread.caddy`) fait HTTPS et DNS dynamique. Aucun port publié.
+- Fichiers: `.env.example` créé (il manquait), `BRIEFING.md`, `.kit/` (VERSION, DEROGATIONS, SONDE_API). Anciens `Caddyfile` et
+  `frontend/Dockerfile` supprimés. `test_securite.py` lit désormais `web/Caddyfile`.
+- Vérifié: 576 tests Python, build du frontend (tsc + Vite + PWA), images Docker, démarrage sous un autre nom de projet.
+- **Production actuelle (`test.nategroup.ch`) non basculée**: voir `DEPLOY.md` § « Bascule ».

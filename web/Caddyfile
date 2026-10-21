@@ -1,0 +1,57 @@
+# Conteneur d'entrée de Thread (thread-web): écoute en 8080 (non-root), joint uniquement par le
+# Caddy central du gateway (~/infra/gateway). Pas de HTTPS ici (le gateway s'en charge), pas d'API
+# d'administration, pas de HSTS (posé une fois par le gateway).
+{
+	admin off
+	auto_https off
+	servers {
+		# Le gateway est sur un réseau privé: on croit son X-Forwarded-For pour transmettre l'IP
+		# réelle du visiteur à l'API (limitation de la force brute au login).
+		trusted_proxies static private_ranges
+	}
+}
+
+:8080 {
+	header {
+		# En-têtes communs à toutes les réponses.
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "same-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+		Cross-Origin-Opener-Policy "same-origin"
+		-Server
+	}
+
+	# L'API est servie par le backend (qui pose sa propre CSP, plus stricte).
+	# >>> api
+	handle /api/* {
+		# Plafond de taille AVANT le backend: un envoi anonyme de plusieurs Go est coupé ici.
+		# Doit rester >= MAX_REQUETE_OCTETS (web/app.py).
+		request_body {
+			max_size 32MB
+		}
+		reverse_proxy thread-api:8000
+	}
+	# <<< api
+
+	# Tout le reste: le build statique du frontend (SPA).
+	handle {
+		root * /srv
+
+		# Politique de contenu: l'app ne charge rien d'externe (polices auto-hébergées) et n'a
+		# aucun script en ligne. Même si du contenu généré par le modèle contenait du code, il ne
+		# pourrait ni s'exécuter ni envoyer de données ailleurs.
+		# Dérogation « csp-unsafe-inline » (.kit/DEROGATIONS): `style-src 'unsafe-inline'` car KaTeX
+		# positionne les formules avec des attributs style. `img-src data:`: les schémas SVG sont
+		# rendus en <img src="data:...">.
+		header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+
+		# Le service worker ne doit jamais être servi depuis le cache: sinon une mise à jour de
+		# l'app peut ne jamais arriver sur le téléphone.
+		@sw path /sw.js /registerSW.js
+		header @sw Cache-Control "no-cache, no-store, must-revalidate"
+
+		try_files {path} /index.html
+		file_server
+	}
+}

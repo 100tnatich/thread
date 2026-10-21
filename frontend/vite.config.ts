@@ -3,7 +3,9 @@ import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
-export default defineConfig({
+import { lirePort } from './lire-env.ts'
+
+export default defineConfig(({ command }) => ({
   plugins: [
     react(),
     tailwindcss(),
@@ -45,13 +47,21 @@ export default defineConfig({
       },
     }),
   ],
-  server: {
-    proxy: {
-      '/api': {
-        // VITE_API_PORT permet aux tests E2E de viser un backend jetable.
-        target: `http://127.0.0.1:${process.env.VITE_API_PORT ?? 8000}`,
-        changeOrigin: true,
-      },
-    },
-  },
-})
+  // Les ports ne sont lus qu'en dev (`vite`), pas au build Docker (pas de .env dans l'image).
+  // Formule 52NN / 81NN (conventions §3.2). PORT_WEB / PORT_API de l'environnement l'emportent
+  // sur .env: c'est ainsi que les tests E2E visent leur backend jetable.
+  server:
+    command === 'serve'
+      ? {
+          port: lirePort('PORT_WEB'),
+          strictPort: true, // jamais de repli silencieux sur un autre port
+          host: process.env.HOST ?? '127.0.0.1',
+          proxy: {
+            '/api': {
+              target: `http://127.0.0.1:${lirePort('PORT_API')}`,
+              changeOrigin: true,
+            },
+          },
+        }
+      : undefined,
+}))

@@ -1,11 +1,15 @@
 import { defineConfig, devices } from '@playwright/test'
 
+import { lirePort } from './lire-env.ts'
+
 /**
  * E2E: lance un backend en mode simulé (MOCK_LLM=1) sur une base jetable,
  * plus le frontend Vite. Aucun appel LLM réel.
  */
-const PORT_API = 8001
-const PORT_WEB = 5174
+// Ports E2E de l'appli (formule 83NN / 53NN, lus dans .env): jamais ceux du dev, donc les tests
+// passent même quand ./run.sh tourne.
+const PORT_API = lirePort('PORT_E2E_API')
+const PORT_WEB = lirePort('PORT_E2E_WEB')
 const DB = 'e2e.db'
 // `uv` est installé dans ~/.local/bin, absent du PATH des sous-processus.
 const UV = process.env.UV_BIN ?? `${process.env.HOME}/.local/bin/uv`
@@ -44,12 +48,13 @@ export default defineConfig({
       },
     },
     {
-      command: `npm run dev -- --port ${PORT_WEB} --strictPort`,
+      command: 'npm run dev',
       port: PORT_WEB,
       reuseExistingServer: false,
       stdout: 'pipe',
       stderr: 'pipe',
-      env: { VITE_API_PORT: String(PORT_API) },
+      // Les variables d'environnement l'emportent sur .env (voir lire-env.ts / vite.config.ts).
+      env: { PORT_WEB: String(PORT_WEB), PORT_API: String(PORT_API) },
     },
   ],
 })
